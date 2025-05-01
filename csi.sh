@@ -437,7 +437,7 @@ sed "s/name: db-user-pass/name: ${PG_PRIMARY_CLUSTER_NAME}-app/" | \
 kubectl apply -n "$PG_NAMESPACE" -f -
 
 echo -e "\n\033[1mInitialize benchmark...\033[0m\n"
-kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench-init -- -i -s 10 -d appdb
+kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench-init -- -i -s 1000 -d appdb
 
 echo -e "\n\033[1mRun benchmark...\033[0m\n"
 echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench -- -c 64 -j 4 -t 50 -P 5 -d appdb"
