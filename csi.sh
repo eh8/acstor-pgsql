@@ -376,14 +376,15 @@ spec:
 EOF
 
 # Install k9s
+
 curl -sS https://webi.sh/k9s | sh; \
 source ~/.config/envman/PATH.env
 
-# Repeat important commands
+# Post installation steps
 
-kubectl get pods --context $AKS_PRIMARY_CLUSTER_NAME --namespace $PG_NAMESPACE -l cnpg.io/cluster=$PG_PRIMARY_CLUSTER_NAME
+kubectl wait --for=condition=Ready cluster $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --timeout=40m
 
-echo "Run this in a few seconds once the cluster is up:"
+echo "Run this to check pods:"
 echo "kubectl get pods --context $AKS_PRIMARY_CLUSTER_NAME --namespace $PG_NAMESPACE -l cnpg.io/cluster=$PG_PRIMARY_CLUSTER_NAME"
 
 echo "Run this to adjust your user environment variables:"
