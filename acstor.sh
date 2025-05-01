@@ -113,9 +113,9 @@ az role assignment create \
 
 # Create the AKS cluster to host the PostgreSQL cluster
 
-export SYSTEM_NODE_POOL_VMSKU="standard_d16ds_v5"
+export SYSTEM_NODE_POOL_VMSKU="standard_l16s_v3"
 export USER_NODE_POOL_NAME="postgres"
-export USER_NODE_POOL_VMSKU="standard_d16ds_v5"
+export USER_NODE_POOL_VMSKU="standard_l16s_v3"
 
 az aks create \
     --name $AKS_PRIMARY_CLUSTER_NAME \
@@ -169,7 +169,15 @@ az aks get-credentials \
 kubectl create namespace $PG_NAMESPACE --context $AKS_PRIMARY_CLUSTER_NAME
 kubectl create namespace $PG_SYSTEM_NAMESPACE --context $AKS_PRIMARY_CLUSTER_NAME
 
-export POSTGRES_STORAGE_CLASS="managed-csi-premium"
+az aks update \
+    --name $AKS_PRIMARY_CLUSTER_NAME \
+    --resource-group $RESOURCE_GROUP_NAME \
+    --enable-azure-container-storage ephemeralDisk \
+    --storage-pool-option NVMe \
+    --ephemeral-disk-volume-type PersistentVolumeWithAnnotation \
+    --azure-container-storage-nodepools $USER_NODE_POOL_NAME
+
+export POSTGRES_STORAGE_CLASS="acstor-ephemeraldisk-nvme"
 
 # Create a public static IP for PostgreSQL cluster ingress
 
@@ -277,6 +285,7 @@ spec:
   inheritedMetadata:
     annotations:
       service.beta.kubernetes.io/azure-dns-label-name: $AKS_PRIMARY_CLUSTER_PG_DNSPREFIX
+      acstor.azure.com/accept-ephemeral-storage: "true"
     labels:
       azure.workload.identity/use: "true"
 
@@ -319,16 +328,6 @@ spec:
       dataChecksums: true
 
   storage:
-    size: 32Gi
-    pvcTemplate:
-      accessModes:
-        - ReadWriteOnce
-      resources:
-        requests:
-          storage: 32Gi
-      storageClassName: $POSTGRES_STORAGE_CLASS
-
-  walStorage:
     size: 32Gi
     pvcTemplate:
       accessModes:
