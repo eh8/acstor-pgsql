@@ -179,7 +179,25 @@ az aks get-credentials \
 kubectl create namespace $PG_NAMESPACE --context $AKS_PRIMARY_CLUSTER_NAME
 kubectl create namespace $PG_SYSTEM_NAMESPACE --context $AKS_PRIMARY_CLUSTER_NAME
 
-export POSTGRES_STORAGE_CLASS="managed-csi-premium"
+# Create a custom storage class with bursting disabled
+echo -e "\n\033[1mCreate a custom storage class with bursting disabled...\033[0m\n"
+
+cat <<EOF | kubectl apply -f
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+    name: workload-sc
+parameters:
+    cachingmode: None
+    maxShares: "2"
+    skuName: Premium_ZRS
+provisioner: disk.csi.azure.com
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+EOF
+
+export POSTGRES_STORAGE_CLASS="workload-sc"
 
 # Create a public static IP for PostgreSQL cluster ingress
 echo -e "\n\033[1mCreate a public static IP for PostgreSQL cluster ingress...\033[0m\n"
