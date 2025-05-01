@@ -54,6 +54,11 @@ if [[ -n "${AZUREPS_HOST_ENVIRONMENT-}" ]]; then
   export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 
   kubectl krew install cnpg
+  
+  # Install k9s
+  echo -e "\n\033[1mInstall k9s...\033[0m\n"
+  curl -sS https://webi.sh/k9s | sh; \
+  source ~/.config/envman/PATH.env
 fi
 
 # Create a resource group
@@ -412,11 +417,6 @@ spec:
         inheritFromAzureAD: true
     retentionPolicy: '7d'
 EOF
-
-# Install k9s
-echo -e "\n\033[1mInstall k9s...\033[0m\n"
-curl -sS https://webi.sh/k9s | sh; \
-source ~/.config/envman/PATH.env
 
 # Post installation steps
 echo -e "\n\033[1mPost installation steps...\033[0m\n"
