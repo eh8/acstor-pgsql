@@ -27,7 +27,7 @@ print_centered "/_/  |_/___/\\__,_/_/   \\___/ "
 echo ""
 print_centered "Preparing for PostgreSQL deployment and benchmark"
 echo ""
-print_centered "You will be using Azure Container Storage and local NVMe drives"
+print_centered "You will be using the Azure Disks CSI driver and Premium SSD disks"
 echo ""
 print_centered "Time is $(date)"
 
