@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# To run: bash -c "$(curl -fsSL https://raw.githubusercontent.com/eh8/acstor-pgsql/main/csi.sh)"
+
 set -euo pipefail
 
 date
