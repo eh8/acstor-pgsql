@@ -25,17 +25,19 @@ print_centered "  / /| /_  / / / / / ___/ _ \\"
 print_centered " / ___ |/ /_/ /_/ / /  /  __/"
 print_centered "/_/  |_/___/\\__,_/_/   \\___/ "
 echo ""
-print_centered "Preparing for PostgreSQL deployment and benchmark! Time is $(date)"
+print_centered "Preparing for PostgreSQL deployment and benchmark"
 echo ""
-print_centered "You will be using the Azure Disks CSI driver and Premium SSD disks."
+print_centered "You will be using the Azure Disks CSI driver and Premium SSD disks"
+echo ""
+print_centered "Time is $(date)"
 
 # Set subscription
-print_message "31" "Set subscription..."
+print_message "34" "Set subscription..."
 
 az account set --subscription "XStore Container Storage" 
 
 # Set environment variables
-print_message "31" "Set environment variables..."
+print_message "34" "Set environment variables..."
 
 export SUFFIX=$(cat /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | fold -w 8 | head -n 1)
 export LOCAL_NAME="cnpg"
@@ -58,7 +60,7 @@ export MY_PUBLIC_CLIENT_IP=$(dig +short myip.opendns.com @resolver3.opendns.com)
 
 if [[ -n "${AZUREPS_HOST_ENVIRONMENT-}" ]]; then
   # Install required extensions
-  print_message "31" "Install required extensions..."
+  print_message "34" "Install required extensions..."
 
   az extension add --upgrade --name aks-preview --yes --allow-preview true
   az extension add --upgrade --name k8s-extension --yes --allow-preview false
@@ -79,13 +81,13 @@ if [[ -n "${AZUREPS_HOST_ENVIRONMENT-}" ]]; then
   kubectl krew install cnpg
 
   # Install k9s
-  print_message "31" "Install k9s..."
+  print_message "34" "Install k9s..."
   curl -sS https://webi.sh/k9s | sh; \
   source ~/.config/envman/PATH.env
 fi
 
 # Create a resource group
-print_message "31" "Create a resource group..."
+print_message "34" "Create a resource group..."
 
 az group create \
     --name $RESOURCE_GROUP_NAME \
@@ -95,7 +97,7 @@ az group create \
     --output tsv
 
 # Create a user-assigned managed identity
-print_message "31" "Create a user-assigned managed identity..."
+print_message "34" "Create a user-assigned managed identity..."
 
 AKS_UAMI_WI_IDENTITY=$(az identity create \
     --name $AKS_UAMI_CLUSTER_IDENTITY_NAME \
@@ -115,7 +117,7 @@ echo "ResourceId: $AKS_UAMI_WORKLOAD_RESOURCEID"
 echo "ClientId: $AKS_UAMI_WORKLOAD_CLIENTID"
 
 # Create a storage account in the primary region
-print_message "31" "Create a storage account in the primary region..."
+print_message "34" "Create a storage account in the primary region..."
 
 az storage account create \
     --name $PG_PRIMARY_STORAGE_ACCOUNT_NAME \
@@ -132,7 +134,7 @@ az storage container create \
     --auth-mode login
 
 # Assign RBAC to storage accounts
-print_message "31" "Assign RBAC to storage accounts..."
+print_message "34" "Assign RBAC to storage accounts..."
 
 export STORAGE_ACCOUNT_PRIMARY_RESOURCE_ID=$(az storage account show \
     --name $PG_PRIMARY_STORAGE_ACCOUNT_NAME \
@@ -151,7 +153,7 @@ az role assignment create \
     --output tsv
 
 # Create the AKS cluster to host the PostgreSQL cluster
-print_message "31" "Create the AKS cluster to host the PostgreSQL cluster..."
+print_message "34" "Create the AKS cluster to host the PostgreSQL cluster..."
 
 export SYSTEM_NODE_POOL_VMSKU="standard_l16s_v3"
 export USER_NODE_POOL_NAME="postgres"
@@ -186,7 +188,7 @@ az aks create \
     # --grafana-resource-id $GRAFANA_RESOURCE_ID \
 
 # Add a user node pool to the AKS cluster using the az aks nodepool add command.
-print_message "31" "Add a user node pool to the AKS cluster using the az aks nodepool add command..."
+print_message "34" "Add a user node pool to the AKS cluster using the az aks nodepool add command..."
 
 az aks nodepool add \
     --resource-group $RESOURCE_GROUP_NAME \
@@ -201,7 +203,7 @@ az aks nodepool add \
     --output table
 
 # Connect to the AKS cluster and create namespaces
-print_message "31" "Connect to the AKS cluster and create namespaces..."
+print_message "34" "Connect to the AKS cluster and create namespaces..."
 
 az aks get-credentials \
     --resource-group $RESOURCE_GROUP_NAME \
@@ -212,7 +214,7 @@ kubectl create namespace $PG_NAMESPACE --context $AKS_PRIMARY_CLUSTER_NAME
 kubectl create namespace $PG_SYSTEM_NAMESPACE --context $AKS_PRIMARY_CLUSTER_NAME
 
 # Create a custom storage class for Azure Container Storage
-print_message "31" "Create a custom storage class for Azure Container Storage..."
+print_message "34" "Create a custom storage class for Azure Container Storage..."
 
 az aks update \
     --name $AKS_PRIMARY_CLUSTER_NAME \
@@ -225,7 +227,7 @@ az aks update \
 export POSTGRES_STORAGE_CLASS="acstor-ephemeraldisk-nvme"
 
 # Create a public static IP for PostgreSQL cluster ingress
-print_message "31" "Create a public static IP for PostgreSQL cluster ingress..."
+print_message "34" "Create a public static IP for PostgreSQL cluster ingress..."
 
 export AKS_PRIMARY_CLUSTER_NODERG_NAME=$(az aks show \
     --name $AKS_PRIMARY_CLUSTER_NAME \
@@ -269,7 +271,7 @@ az role assignment create \
 
 # Install the CNPG operator in the AKS cluster
 
-print_message "31" "Install the CNPG operator in the AKS cluster..."
+print_message "34" "Install the CNPG operator in the AKS cluster..."
 helm repo add cnpg https://cloudnative-pg.github.io/charts
 
 helm upgrade --install cnpg \
@@ -283,7 +285,7 @@ kubectl get deployment \
     --namespace $PG_SYSTEM_NAMESPACE cnpg-cloudnative-pg
 
 # Create secret for bootstrap app user
-print_message "31" "Create secret for bootstrap app user..."
+print_message "34" "Create secret for bootstrap app user..."
 
 PG_DATABASE_APPUSER_SECRET=$(echo -n | openssl rand -base64 16)
 
@@ -296,7 +298,7 @@ kubectl create secret generic db-user-pass \
 kubectl get secret db-user-pass --namespace $PG_NAMESPACE --context $AKS_PRIMARY_CLUSTER_NAME
 
 # Set environment variables for the PostgreSQL cluster
-print_message "31" "Set environment variables for the PostgreSQL cluster..."
+print_message "34" "Set environment variables for the PostgreSQL cluster..."
 
 cat <<EOF | kubectl apply --context $AKS_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE -f -
 apiVersion: v1
@@ -308,7 +310,7 @@ data:
 EOF
 
 # Create a federated credential
-print_message "31" "Create a federated credential..."
+print_message "34" "Create a federated credential..."
 
 export AKS_PRIMARY_CLUSTER_OIDC_ISSUER="$(az aks show \
     --name $AKS_PRIMARY_CLUSTER_NAME \
@@ -325,7 +327,7 @@ az identity federated-credential create \
     --audience api://AzureADTokenExchange
 
 # Deploying PostgreSQL
-print_message "31" "Deploying PostgreSQL..."
+print_message "34" "Deploying PostgreSQL..."
 
 cat <<EOF | kubectl apply --context $AKS_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE -v 9 -f -
 apiVersion: postgresql.cnpg.io/v1
@@ -426,32 +428,32 @@ spec:
 EOF
 
 # Post installation steps
-print_message "31" "Post installation steps..."
+print_message "34" "Post installation steps..."
 
-print_message "31" "Check pods..."
+print_message "34" "Check pods..."
 echo "kubectl get pods --context $AKS_PRIMARY_CLUSTER_NAME --namespace $PG_NAMESPACE -l cnpg.io/cluster=$PG_PRIMARY_CLUSTER_NAME"
 
-print_message "31" "Adjust your user environment variables..."
+print_message "34" "Adjust your user environment variables..."
 echo 'export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"'
 echo 'export AKS_PRIMARY_CLUSTER_NAME'=$AKS_PRIMARY_CLUSTER_NAME
 echo 'export PG_PRIMARY_CLUSTER_NAME'=$PG_PRIMARY_CLUSTER_NAME
 echo 'export PG_NAMESPACE'=$PG_NAMESPACE
 
 # Prepare for benchmark
-print_message "31" "Prepare for benchmark..."
+print_message "34" "Prepare for benchmark..."
 kubectl get secret db-user-pass -n "$PG_NAMESPACE" -o yaml | \
 sed "s/name: db-user-pass/name: ${PG_PRIMARY_CLUSTER_NAME}-app/" | \
 kubectl apply -n "$PG_NAMESPACE" -f -
 
-print_message "31" "Initialize benchmark..."
+print_message "34" "Initialize benchmark..."
 kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench-init -- -i -s 1000 -d appdb
 
-print_message "31" "Run benchmark..."
+print_message "34" "Run benchmark..."
 echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench -- -c 64 -j 4 -t 50 -P 5 -d appdb"
 
-print_message "31" "View jobs..."
+print_message "34" "View jobs..."
 echo "k9s -A"
 
 # kubectl wait --for=condition=Ready cluster $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --timeout=40m
 
-echo -e "\n\033[1;32mAll steps completed successfully! Time is $(date)"
+print_message "32" "All steps completed successfully! Time is $(date)"
