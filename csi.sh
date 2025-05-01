@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-date
+echo -e "\n\033[1;32mPreparing for PostgreSQL deployment and benchmark! Time is $(date)\033[0m\n"
 
 # Set subscription
 echo -e "\n\033[1mSet subscription...\033[0m\n"
@@ -146,11 +146,11 @@ az aks create \
     --min-count 2 \
     --max-count 3 \
     --node-vm-size $SYSTEM_NODE_POOL_VMSKU \
-    --api-server-authorized-ip-ranges $MY_PUBLIC_CLIENT_IP \
     --tier standard \
     --kubernetes-version $AKS_CLUSTER_VERSION \
     --zones 1 2 3 \
     --output table
+    # --api-server-authorized-ip-ranges $MY_PUBLIC_CLIENT_IP \
     # --enable-azure-monitor-metrics \
     # --azure-monitor-workspace-resource-id $AMW_RESOURCE_ID \
     # --grafana-resource-id $GRAFANA_RESOURCE_ID \
@@ -418,7 +418,6 @@ source ~/.config/envman/PATH.env
 
 # Post installation steps
 echo -e "\n\033[1mPost installation steps...\033[0m\n"
-kubectl wait --for=condition=Ready cluster $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --timeout=40m
 
 echo -e "\n\033[1mCheck pods...\033[0m\n"
 echo "kubectl get pods --context $AKS_PRIMARY_CLUSTER_NAME --namespace $PG_NAMESPACE -l cnpg.io/cluster=$PG_PRIMARY_CLUSTER_NAME"
@@ -429,13 +428,21 @@ echo 'export AKS_PRIMARY_CLUSTER_NAME'=$AKS_PRIMARY_CLUSTER_NAME
 echo 'export PG_PRIMARY_CLUSTER_NAME'=$PG_PRIMARY_CLUSTER_NAME
 echo 'export PG_NAMESPACE'=$PG_NAMESPACE
 
+# Prepare for benchmark
+echo -e "\n\033[1mPrepare for benchmark...\033[0m\n"
+kubectl get secret db-user-pass -n "$PG_NAMESPACE" -o yaml | \
+sed "s/name: db-user-pass/name: ${PG_PRIMARY_CLUSTER_NAME}-app/" | \
+kubectl apply -n "$PG_NAMESPACE" -f -
+
 echo -e "\n\033[1mInitialize benchmark...\033[0m\n"
-echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench-init -- -i -s 1000"
+echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench-init -- -i -s 1000 -d appdb"
 
 echo -e "\n\033[1mRun benchmark...\033[0m\n"
-echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench -- -c 64 -j 4 -T 200"
+echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench -- -c 64 -j 4 -t 50 -P 5 -d appdb"
 
 echo -e "\n\033[1mView jobs...\033[0m\n"
-echo "k9s -n $PG_NAMESPACE"
+echo "k9s -A"
 
-date
+# kubectl wait --for=condition=Ready cluster $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --timeout=40m
+
+echo -e "\n\033[1;32mAll steps completed successfully! Time is $(date)\033[0m\n"
