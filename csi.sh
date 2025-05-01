@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# To run: bash -c "$(curl -fsSL https://raw.githubusercontent.com/eh8/acstor-pgsql/main/csi.sh)"
+# To run from Cloud Shell: bash -c "$(curl -fsSL https://raw.githubusercontent.com/eh8/acstor-pgsql/main/csi.sh)"
 
 set -euo pipefail
 
@@ -33,26 +33,28 @@ export PG_STORAGE_BACKUP_CONTAINER_NAME="backups"
 export ENABLE_AZURE_PVC_UPDATES="true"
 export MY_PUBLIC_CLIENT_IP=$(dig +short myip.opendns.com @resolver3.opendns.com)
 
-# Install required extensions
-echo -e "\n\033[1mInstall required extensions...\033[0m\n"
+if [[ -n "${AZUREPS_HOST_ENVIRONMENT-}" ]]; then
+  # Install required extensions
+  echo -e "\n\033[1mInstall required extensions...\033[0m\n"
 
-az extension add --upgrade --name aks-preview --yes --allow-preview true
-az extension add --upgrade --name k8s-extension --yes --allow-preview false
-az extension add --upgrade --name amg --yes --allow-preview false
+  az extension add --upgrade --name aks-preview --yes --allow-preview true
+  az extension add --upgrade --name k8s-extension --yes --allow-preview false
+  az extension add --upgrade --name amg --yes --allow-preview false
 
-(
-  set -x; cd "$(mktemp -d)" &&
-  OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
-  ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
-  KREW="krew-${OS}_${ARCH}" &&
-  curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
-  tar zxvf "${KREW}.tar.gz" &&
-  ./"${KREW}" install krew
-)
+  (
+    set -x; cd "$(mktemp -d)" &&
+    OS="$(uname | tr '[:upper:]' '[:lower:]')" &&
+    ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/\(arm\)\(64\)\?.*/\1\2/' -e 's/aarch64$/arm64/')" &&
+    KREW="krew-${OS}_${ARCH}" &&
+    curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz" &&
+    tar zxvf "${KREW}.tar.gz" &&
+    ./"${KREW}" install krew
+  )
 
-export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+  export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 
-kubectl krew install cnpg
+  kubectl krew install cnpg
+fi
 
 # Create a resource group
 echo -e "\n\033[1mCreate a resource group...\033[0m\n"
@@ -435,7 +437,7 @@ sed "s/name: db-user-pass/name: ${PG_PRIMARY_CLUSTER_NAME}-app/" | \
 kubectl apply -n "$PG_NAMESPACE" -f -
 
 echo -e "\n\033[1mInitialize benchmark...\033[0m\n"
-echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench-init -- -i -s 1000 -d appdb"
+kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench-init -- -i -s 10 -d appdb
 
 echo -e "\n\033[1mRun benchmark...\033[0m\n"
 echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench -- -c 64 -j 4 -t 50 -P 5 -d appdb"
