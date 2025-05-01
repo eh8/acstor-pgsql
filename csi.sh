@@ -5,10 +5,12 @@ set -euo pipefail
 date
 
 # Set subscription
+echo -e "\n\033[1mSet subscription...\033[0m\n"
 
 az account set --subscription "XStore Container Storage" 
 
 # Set environment variables
+echo -e "\n\033[1mSet environment variables...\033[0m\n"
 
 export SUFFIX=$(cat /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | fold -w 8 | head -n 1)
 export LOCAL_NAME="cnpg"
@@ -30,6 +32,7 @@ export ENABLE_AZURE_PVC_UPDATES="true"
 export MY_PUBLIC_CLIENT_IP=$(dig +short myip.opendns.com @resolver3.opendns.com)
 
 # Install required extensions
+echo -e "\n\033[1mInstall required extensions...\033[0m\n"
 
 az extension add --upgrade --name aks-preview --yes --allow-preview true
 az extension add --upgrade --name k8s-extension --yes --allow-preview false
@@ -50,6 +53,7 @@ export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
 kubectl krew install cnpg
 
 # Create a resource group
+echo -e "\n\033[1mCreate a resource group...\033[0m\n"
 
 az group create \
     --name $RESOURCE_GROUP_NAME \
@@ -59,6 +63,7 @@ az group create \
     --output tsv
 
 # Create a user-assigned managed identity
+echo -e "\n\033[1mCreate a user-assigned managed identity...\033[0m\n"
 
 AKS_UAMI_WI_IDENTITY=$(az identity create \
     --name $AKS_UAMI_CLUSTER_IDENTITY_NAME \
@@ -78,6 +83,7 @@ echo "ResourceId: $AKS_UAMI_WORKLOAD_RESOURCEID"
 echo "ClientId: $AKS_UAMI_WORKLOAD_CLIENTID"
 
 # Create a storage account in the primary region
+echo -e "\n\033[1mCreate a storage account in the primary region...\033[0m\n"
 
 az storage account create \
     --name $PG_PRIMARY_STORAGE_ACCOUNT_NAME \
@@ -94,6 +100,7 @@ az storage container create \
     --auth-mode login
 
 # Assign RBAC to storage accounts
+echo -e "\n\033[1mAssign RBAC to storage accounts...\033[0m\n"
 
 export STORAGE_ACCOUNT_PRIMARY_RESOURCE_ID=$(az storage account show \
     --name $PG_PRIMARY_STORAGE_ACCOUNT_NAME \
@@ -112,6 +119,7 @@ az role assignment create \
     --output tsv
 
 # Create the AKS cluster to host the PostgreSQL cluster
+echo -e "\n\033[1mCreate the AKS cluster to host the PostgreSQL cluster...\033[0m\n"
 
 export SYSTEM_NODE_POOL_VMSKU="standard_d16ds_v5"
 export USER_NODE_POOL_NAME="postgres"
@@ -146,6 +154,7 @@ az aks create \
     # --grafana-resource-id $GRAFANA_RESOURCE_ID \
 
 # Add a user node pool to the AKS cluster using the az aks nodepool add command.
+echo -e "\n\033[1mAdd a user node pool to the AKS cluster using the az aks nodepool add command...\033[0m\n"
 
 az aks nodepool add \
     --resource-group $RESOURCE_GROUP_NAME \
@@ -160,6 +169,7 @@ az aks nodepool add \
     --output table
 
 # Connect to the AKS cluster and create namespaces
+echo -e "\n\033[1mConnect to the AKS cluster and create namespaces...\033[0m\n"
 
 az aks get-credentials \
     --resource-group $RESOURCE_GROUP_NAME \
@@ -172,6 +182,7 @@ kubectl create namespace $PG_SYSTEM_NAMESPACE --context $AKS_PRIMARY_CLUSTER_NAM
 export POSTGRES_STORAGE_CLASS="managed-csi-premium"
 
 # Create a public static IP for PostgreSQL cluster ingress
+echo -e "\n\033[1mCreate a public static IP for PostgreSQL cluster ingress...\033[0m\n"
 
 export AKS_PRIMARY_CLUSTER_NODERG_NAME=$(az aks show \
     --name $AKS_PRIMARY_CLUSTER_NAME \
@@ -215,6 +226,7 @@ az role assignment create \
 
 # Install the CNPG operator in the AKS cluster
 
+echo -e "\n\033[1mInstall the CNPG operator in the AKS cluster...\033[0m\n"
 helm repo add cnpg https://cloudnative-pg.github.io/charts
 
 helm upgrade --install cnpg \
@@ -228,6 +240,7 @@ kubectl get deployment \
     --namespace $PG_SYSTEM_NAMESPACE cnpg-cloudnative-pg
 
 # Create secret for bootstrap app user
+echo -e "\n\033[1mCreate secret for bootstrap app user...\033[0m\n"
 
 PG_DATABASE_APPUSER_SECRET=$(echo -n | openssl rand -base64 16)
 
@@ -240,6 +253,7 @@ kubectl create secret generic db-user-pass \
 kubectl get secret db-user-pass --namespace $PG_NAMESPACE --context $AKS_PRIMARY_CLUSTER_NAME
 
 # Set environment variables for the PostgreSQL cluster
+echo -e "\n\033[1mSet environment variables for the PostgreSQL cluster...\033[0m\n"
 
 cat <<EOF | kubectl apply --context $AKS_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE -f -
 apiVersion: v1
@@ -251,6 +265,7 @@ data:
 EOF
 
 # Create a federated credential
+echo -e "\n\033[1mCreate a federated credential...\033[0m\n"
 
 export AKS_PRIMARY_CLUSTER_OIDC_ISSUER="$(az aks show \
     --name $AKS_PRIMARY_CLUSTER_NAME \
@@ -267,6 +282,7 @@ az identity federated-credential create \
     --audience api://AzureADTokenExchange
 
 # Deploying PostgreSQL
+echo -e "\n\033[1mDeploying PostgreSQL...\033[0m\n"
 
 cat <<EOF | kubectl apply --context $AKS_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE -v 9 -f -
 apiVersion: postgresql.cnpg.io/v1
@@ -376,30 +392,30 @@ spec:
 EOF
 
 # Install k9s
-
+echo -e "\n\033[1mInstall k9s...\033[0m\n"
 curl -sS https://webi.sh/k9s | sh; \
 source ~/.config/envman/PATH.env
 
 # Post installation steps
-
+echo -e "\n\033[1mPost installation steps...\033[0m\n"
 kubectl wait --for=condition=Ready cluster $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --timeout=40m
 
-echo "Run this to check pods:"
+echo -e "\n\033[1mCheck pods...\033[0m\n"
 echo "kubectl get pods --context $AKS_PRIMARY_CLUSTER_NAME --namespace $PG_NAMESPACE -l cnpg.io/cluster=$PG_PRIMARY_CLUSTER_NAME"
 
-echo "Run this to adjust your user environment variables:"
+echo -e "\n\033[1mAdjust your user environment variables...\033[0m\n"
 echo 'export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"'
-echo 'export $AKS_PRIMARY_CLUSTER_NAME'=$AKS_PRIMARY_CLUSTER_NAME
-echo 'export $PG_PRIMARY_CLUSTER_NAME'=$PG_PRIMARY_CLUSTER_NAME
-echo 'export $PG_NAMESPACE'=$PG_NAMESPACE
+echo 'export AKS_PRIMARY_CLUSTER_NAME'=$AKS_PRIMARY_CLUSTER_NAME
+echo 'export PG_PRIMARY_CLUSTER_NAME'=$PG_PRIMARY_CLUSTER_NAME
+echo 'export PG_NAMESPACE'=$PG_NAMESPACE
 
-echo "Initialize benchmark:"
+echo -e "\n\033[1mInitialize benchmark...\033[0m\n"
 echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench-init -- -i -s 1000"
 
-echo "Run benchmark:"
+echo -e "\n\033[1mRun benchmark...\033[0m\n"
 echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench -- -c 64 -j 4 -T 200"
 
-echo "View jobs:"
+echo -e "\n\033[1mView jobs...\033[0m\n"
 echo "k9s -n $PG_NAMESPACE"
 
 date
