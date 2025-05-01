@@ -433,19 +433,20 @@ print_message "34" "Post installation steps..."
 print_message "34" "Check pods..."
 echo "kubectl get pods --context $AKS_PRIMARY_CLUSTER_NAME --namespace $PG_NAMESPACE -l cnpg.io/cluster=$PG_PRIMARY_CLUSTER_NAME"
 
-print_message "34" "Adjust your user environment variables..."
-echo 'export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"'
-echo 'export AKS_PRIMARY_CLUSTER_NAME'=$AKS_PRIMARY_CLUSTER_NAME
-echo 'export PG_PRIMARY_CLUSTER_NAME'=$PG_PRIMARY_CLUSTER_NAME
-echo 'export PG_NAMESPACE'=$PG_NAMESPACE
-
 # Prepare for benchmark
 print_message "34" "Prepare for benchmark..."
 kubectl get secret db-user-pass -n "$PG_NAMESPACE" -o yaml | \
 sed "s/name: db-user-pass/name: ${PG_PRIMARY_CLUSTER_NAME}-app/" | \
 kubectl apply -n "$PG_NAMESPACE" -f -
 
+print_message "34" "Adjust your user environment variables..."
+echo 'export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"'
+echo 'export AKS_PRIMARY_CLUSTER_NAME'=$AKS_PRIMARY_CLUSTER_NAME
+echo 'export PG_PRIMARY_CLUSTER_NAME'=$PG_PRIMARY_CLUSTER_NAME
+echo 'export PG_NAMESPACE'=$PG_NAMESPACE
+
 print_message "34" "Initialize benchmark..."
+kubectl wait --for=condition=Ready cluster $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --timeout=30m
 kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name pgbench-init -- -i -s 1000 -d appdb
 
 print_message "34" "Run benchmark..."
@@ -453,7 +454,5 @@ echo "kubectl cnpg pgbench $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --job-name 
 
 print_message "34" "View jobs..."
 echo "k9s -A"
-
-# kubectl wait --for=condition=Ready cluster $PG_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE --timeout=40m
 
 print_message "32" "All steps completed successfully! Time is $(date)"
