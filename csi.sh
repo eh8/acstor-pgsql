@@ -336,7 +336,7 @@ az identity federated-credential create \
 # Deploying PostgreSQL
 print_message "34" "Deploying PostgreSQL..."
 
-cat <<EOF | kubectl apply --context $AKS_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE -v 9 -f -
+cat <<EOF | kubectl apply --context $AKS_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE -f -
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
