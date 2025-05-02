@@ -224,21 +224,21 @@ az aks update \
     --ephemeral-disk-volume-type PersistentVolumeWithAnnotation \
     --azure-container-storage-nodepools $USER_NODE_POOL_NAME
 
-cat <<EOF | kubectl apply --context $AKS_PRIMARY_CLUSTER_NAME -n $PG_NAMESPACE -v 9 -f -
+cat <<EOF | kubectl apply -f -
 apiVersion: storage.k8s.io/v1
-  kind: StorageClass
-  metadata:
-    name: acstor-ephemeraldisk-nvme-db
-  parameters:
-    acstor.azure.com/storagepool: ephemeraldisk-nvme
-    hyperconverged: "true"
-    ioTimeout: "60"
-    proto: nvmf
-    repl: "1"
-    enableDBProfile: "true"
-  provisioner: containerstorage.csi.azure.com
-  reclaimPolicy: Delete
-  volumeBindingMode: WaitForFirstConsumer
+kind: StorageClass
+metadata:
+  name: acstor-ephemeraldisk-nvme-db
+parameters:
+  acstor.azure.com/storagepool: ephemeraldisk-nvme
+  hyperconverged: "true"
+  ioTimeout: "60"
+  proto: nvmf
+  repl: "1"
+  enableDBProfile: "true"
+provisioner: containerstorage.csi.azure.com
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
 EOF
 
 export POSTGRES_STORAGE_CLASS="acstor-ephemeraldisk-nvme-db"

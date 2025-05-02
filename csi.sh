@@ -220,11 +220,11 @@ cat <<EOF | kubectl apply -f -
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-    name: workload-sc
+  name: workload-sc
 parameters:
-    cachingmode: None
-    maxShares: "2"
-    skuName: Premium_ZRS
+  cachingmode: None
+  maxShares: "2"
+  skuName: Premium_ZRS
 provisioner: disk.csi.azure.com
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
