@@ -410,10 +410,10 @@ spec:
       checkpoint_flush_after: 2MB
       wal_writer_flush_after: 2MB
       min_wal_size: 4GB
-      shared_buffers: 4GB
-      effective_cache_size: 12GB
-      work_mem: 62MB
-      maintenance_work_mem: 1GB
+      shared_buffers: 32GB
+      effective_cache_size: 96GB
+      work_mem: 512MB
+      maintenance_work_mem: 8GB
       autovacuum_vacuum_cost_limit: "2400"
       random_page_cost: "1.1"
       effective_io_concurrency: "64"

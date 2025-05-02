@@ -370,14 +370,6 @@ spec:
     nodeSelector:
       workload: postgres
 
-  resources:
-    requests:
-      memory: '8Gi'
-      cpu: 2
-    limits:
-      memory: '8Gi'
-      cpu: 2
-
   bootstrap:
     initdb:
       database: appdb
@@ -417,10 +409,10 @@ spec:
       checkpoint_flush_after: 2MB
       wal_writer_flush_after: 2MB
       min_wal_size: 4GB
-      shared_buffers: 4GB
-      effective_cache_size: 12GB
-      work_mem: 62MB
-      maintenance_work_mem: 1GB
+      shared_buffers: 8GB
+      effective_cache_size: 24GB
+      work_mem: 125MB
+      maintenance_work_mem: 2GB
       autovacuum_vacuum_cost_limit: "2400"
       random_page_cost: "1.1"
       effective_io_concurrency: "64"
