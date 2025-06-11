@@ -155,7 +155,7 @@ az role assignment create \
 # Create the AKS cluster to host the PostgreSQL cluster
 print_message "34" "Create the AKS cluster to host the PostgreSQL cluster..."
 
-export SYSTEM_NODE_POOL_VMSKU="standard_d16ds_v5"
+export SYSTEM_NODE_POOL_VMSKU="standard_d4ds_v5"
 export USER_NODE_POOL_NAME="postgres"
 export USER_NODE_POOL_VMSKU="standard_d16ds_v5"
 
