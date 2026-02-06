@@ -1,0 +1,9 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  name: acstor-cnpg-backup
+  namespace: cnpg-lab
+spec:
+  cluster:
+    name: acstor-cnpg
+  method: barmanObjectStore

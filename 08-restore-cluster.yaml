@@ -1,0 +1,36 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: acstor-cnpg-restore
+  namespace: cnpg-lab
+spec:
+  instances: 3
+
+  storage:
+    storageClass: azuresan
+    size: 10Gi
+
+  walStorage:
+    storageClass: azuresan
+    size: 5Gi
+
+  superuserSecret:
+    name: postgres-superuser
+
+  bootstrap:
+    recovery:
+      backup:
+        name: acstor-cnpg-backup
+
+  backup:
+    barmanObjectStore:
+      destinationPath: https://REPLACE_ME_ACCOUNT.blob.core.windows.net/REPLACE_ME_CONTAINER/acstor-cnpg-restore
+      azureCredentials:
+        storageAccount:
+          name: azure-blob-creds
+          key: AZURE_STORAGE_ACCOUNT
+        storageKey:
+          name: azure-blob-creds
+          key: AZURE_STORAGE_KEY
+    retentionPolicy: "7d"
+    target: "prefer-standby"

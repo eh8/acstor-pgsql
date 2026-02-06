@@ -1,25 +1,253 @@
-# Azure Container Storage for PostgreSQL
+# CloudNativePG on Azure Container Storage (Elastic SAN) Lab
 
-This project sets up a PostgreSQL cluster on Azure Kubernetes Service (AKS) using the [CloudNativePG](https://cloudnative-pg.io/) operator. It's designed to get you ready for benchmarking with `pgbench`.
+This lab walks through creating a 3-node HA PostgreSQL cluster on AKS using CloudNativePG (CNPG) and Azure Container Storage (Elastic SAN). It includes benchmark steps, sample data, and backup/restore using Barman.
 
-- 💻 Runs out of the box in [Azure Cloud Shell](https://shell.azure.com/) – no local setup required (but I personally run this on WSL anyways)
-- 📚 Based on official [PostgreSQL on AKS documentation](https://aka.ms/pgsql) – built with best practices in mind
-- 🛠️ Powered by [CloudNativePG](https://cloudnative-pg.io/) – for high availability and simplified maintenance
-- ⚙️ Uses 16-core Azure VMs by default – ensuring strong performance for realistic testing
-- ☁️ Automated backups to Azure Blob Storage via Barman – for safe, periodic database backups
+## Prereqs
 
-## Azure Container Storage (Local NVMe Drives)
+- Azure subscription + Azure CLI
+- Terraform >= 1.5
+- kubectl, Helm (for operator install)
 
-Creates a PostgreSQL cluster using [Azure Container Storage](https://aka.ms/acstor) on high-speed [local NVMe drives](https://learn.microsoft.com/en-us/azure/storage/container-storage/use-container-storage-with-local-disk#what-is-ephemeral-disk).
+## Provision AKS + Azure Container Storage
 
-```bash
-bash -c "$(curl -fsSL <https://raw.githubusercontent.com/eh8/acstor-pgsql/main/acstor.sh>)"
-```
+Start a new Bash-based Azure Cloud Shell.
 
-## Azure Disks CSI Driver (Premium SSDs)
-
-Creates a PostgreSQL cluster using the [Azure Disks CSI driver](https://learn.microsoft.com/en-us/azure/aks/azure-disk-csi) with Premium SSD storage.
+Set relevant subscription.
 
 ```bash
-bash -c "$(curl -fsSL <https://raw.githubusercontent.com/eh8/acstor-pgsql/main/csi.sh>)"
+az account set --subscription <your subscription>
 ```
+
+Then export `ARM_SUBSCRIPTION_ID` so Terraform knows where to deploy.
+
+```bash
+export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+```
+
+Use the provided Terraform template:
+
+```bash
+terraform init
+terraform apply
+```
+
+If the storage account name is already taken, re-run with your own name:
+
+```bash
+terraform apply -var storage_account_name=acstorcnpgdemo$RANDOM
+```
+
+After apply, fetch kubeconfig:
+
+```bash
+az aks get-credentials --resource-group demo-aks-rg-001 --name demo-aks-cluster
+```
+
+### Get Azure Blob backup details (fast, non-prod)
+
+Terraform creates a storage account and container for backups. Export the values you need for the CNPG secret and destination path:
+
+```bash
+export AZ_SA=$(terraform output -raw storage_account_name)
+export AZ_CONTAINER=$(terraform output -raw storage_container_name)
+export AZ_KEY=$(terraform output -raw storage_account_key)
+```
+
+Single-line version:
+
+```bash
+export AZ_SA=$(terraform output -raw storage_account_name) AZ_CONTAINER=$(terraform output -raw storage_container_name) AZ_KEY=$(terraform output -raw storage_account_key)
+```
+
+These are **lab-only** exports (account keys in a Secret).
+
+## Install the CNPG operator
+
+Option A (Helm, recommended):
+
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm upgrade --install cnpg \
+  --namespace cnpg-system \
+  --create-namespace \
+  cnpg/cloudnative-pg
+```
+
+Option B (kubectl + cnpg plugin to generate manifests):
+
+```bash
+kubectl cnpg install generate -n cnpg-system > cnpg-operator.yaml
+kubectl apply -f cnpg-operator.yaml
+```
+
+Verify the operator is ready:
+
+```bash
+kubectl get deploy -n cnpg-system
+```
+
+## Create namespace + secrets + sample data
+
+Edit these values before applying:
+
+- `01-secrets.yaml`: `REPLACE_ME_*`
+- `09-cluster.yaml`: `destinationPath` placeholders
+- `08-restore-cluster.yaml`: `destinationPath` placeholders
+
+Fast, non-prod secret + destination updates using the exports above:
+
+```bash
+sed -i "s/REPLACE_ME_STORAGE_ACCOUNT/$AZ_SA/" 01-secrets.yaml
+sed -i "s/REPLACE_ME_STORAGE_KEY/$AZ_KEY/" 01-secrets.yaml
+sed -i "s/REPLACE_ME_ACCOUNT/$AZ_SA/" 09-cluster.yaml
+sed -i "s/REPLACE_ME_CONTAINER/$AZ_CONTAINER/" 09-cluster.yaml
+sed -i "s/REPLACE_ME_ACCOUNT/$AZ_SA/" 08-restore-cluster.yaml
+sed -i "s/REPLACE_ME_CONTAINER/$AZ_CONTAINER/" 08-restore-cluster.yaml
+```
+
+Apply:
+
+```bash
+kubectl apply -f 00-namespace.yaml
+kubectl apply -f 01-secrets.yaml
+kubectl apply -f 02-sample-data-configmap.yaml
+```
+
+## Ensure the Azure Elastic SAN StorageClass exists
+
+The lab uses a StorageClass named `azuresan` with provisioner `san.csi.azure.com`. If Terraform already created it, you can skip this step. Otherwise apply:
+
+```bash
+kubectl apply -f 03-storageclass-azuresan.yaml
+kubectl get storageclass azuresan
+```
+
+## Create the 3-node CNPG cluster
+
+```bash
+kubectl apply -f 09-cluster.yaml
+kubectl get pods -n cnpg-lab
+```
+
+CNPG creates services for the cluster. The read/write service is named `<cluster>-rw` (here `acstor-cnpg-rw`). Use it for connections.
+
+## Check sample data
+
+The sample tables and rows are created during bootstrap via `postInitApplicationSQLRefs`.
+
+Run a quick query:
+
+```bash
+kubectl run psql --rm -it --image=postgres:16 \
+  --env=PGHOST=acstor-cnpg-rw.cnpg-lab.svc \
+  --env=PGUSER=app \
+  --env=PGPASSWORD=$(kubectl get secret app-user -n cnpg-lab -o jsonpath='{.data.password}' | base64 -d) \
+  --env=PGDATABASE=app \
+  -- bash -lc "psql -c 'TABLE accounts'"
+```
+
+## CNPG benchmark (pgbench)
+
+Initialize the benchmark data:
+
+```bash
+kubectl apply -f 04-pgbench-init-job.yaml
+kubectl logs -n cnpg-lab job/pgbench-init
+```
+
+Run the benchmark:
+
+```bash
+kubectl apply -f 05-pgbench-run-job.yaml
+kubectl logs -n cnpg-lab job/pgbench-run
+```
+
+## Backup with Barman (Azure Blob)
+
+Trigger an on-demand backup:
+
+```bash
+kubectl apply -f 06-backup.yaml
+kubectl get backups -n cnpg-lab
+```
+
+Create a scheduled backup (daily at 02:00:00):
+
+```bash
+kubectl apply -f 07-scheduled-backup.yaml
+```
+
+Note: CNPG scheduled backups use a 6-field cron format (includes seconds).
+
+## Recover from backup (Barman)
+
+Simulate a bad change:
+
+```bash
+kubectl run psql --rm -it --image=postgres:16 \
+  --env=PGHOST=acstor-cnpg-rw.cnpg-lab.svc \
+  --env=PGUSER=app \
+  --env=PGPASSWORD=$(kubectl get secret app-user -n cnpg-lab -o jsonpath='{.data.password}' | base64 -d) \
+  --env=PGDATABASE=app \
+  -- bash -lc "psql -c \"DELETE FROM accounts WHERE id = 1;\""
+```
+
+Restore into a **new** cluster (CNPG does not do in-place restores):
+
+```bash
+kubectl apply -f 08-restore-cluster.yaml
+kubectl get pods -n cnpg-lab
+```
+
+Verify data is present in the restored cluster:
+
+```bash
+kubectl run psql --rm -it --image=postgres:16 \
+  --env=PGHOST=acstor-cnpg-restore-rw.cnpg-lab.svc \
+  --env=PGUSER=app \
+  --env=PGPASSWORD=$(kubectl get secret app-user -n cnpg-lab -o jsonpath='{.data.password}' | base64 -d) \
+  --env=PGDATABASE=app \
+  -- bash -lc "psql -c 'TABLE accounts'"
+```
+
+Important: the restore cluster uses a **different** `destinationPath` for backups to avoid overwriting the original backup repository.
+
+## Tear down / cleanup
+
+Delete CNPG clusters and jobs:
+
+```bash
+kubectl delete -f 08-restore-cluster.yaml --ignore-not-found
+kubectl delete -f 09-cluster.yaml --ignore-not-found
+kubectl delete -f 04-pgbench-init-job.yaml --ignore-not-found
+kubectl delete -f 05-pgbench-run-job.yaml --ignore-not-found
+kubectl delete -f 06-backup.yaml --ignore-not-found
+kubectl delete -f 07-scheduled-backup.yaml --ignore-not-found
+```
+
+Delete PVCs (if any remain):
+
+```bash
+kubectl delete pvc -n cnpg-lab -l cnpg.io/cluster=acstor-cnpg --ignore-not-found
+kubectl delete pvc -n cnpg-lab -l cnpg.io/cluster=acstor-cnpg-restore --ignore-not-found
+```
+
+Delete the namespace (cleans remaining resources):
+
+```bash
+kubectl delete namespace cnpg-lab --ignore-not-found
+```
+
+Optionally delete the StorageClass if you created it manually:
+
+```bash
+kubectl delete -f 03-storageclass-azuresan.yaml --ignore-not-found
+```
+
+Tear down AKS and Azure resources:
+
+```bash
+terraform destroy
+```
+
+If cleanup hangs, check for stuck PVCs or Pods and delete them before re-running `terraform destroy`.

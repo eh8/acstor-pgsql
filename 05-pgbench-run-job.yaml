@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pgbench-run
+  namespace: cnpg-lab
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: pgbench
+          image: postgres:16
+          env:
+            - name: PGHOST
+              value: acstor-cnpg-rw.cnpg-lab.svc
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: app-user
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-user
+                  key: password
+            - name: PGDATABASE
+              value: app
+          command:
+            - bash
+            - -lc
+            - |
+              pgbench --time 60 --client 4 --jobs 2 --progress 10
