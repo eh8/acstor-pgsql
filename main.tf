@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 4.0"
     }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -15,7 +19,7 @@ provider "azurerm" {
 variable "storage_account_name" {
   description = "Globally-unique storage account name (3-24 lowercase letters/numbers)."
   type        = string
-  default     = "acstorcnpgdemo001"
+  default     = "acstorcnpgdemo001a3f9c7d"
 }
 
 variable "storage_container_name" {
@@ -26,7 +30,7 @@ variable "storage_container_name" {
 
 resource "azurerm_resource_group" "rg" {
   name     = "demo-aks-rg-001"
-  location = "swedencentral"
+  location = "eastus"
 }
 
 resource "azurerm_storage_account" "backups" {
@@ -39,7 +43,7 @@ resource "azurerm_storage_account" "backups" {
 
 resource "azurerm_storage_container" "backups" {
   name                  = var.storage_container_name
-  storage_account_name  = azurerm_storage_account.backups.name
+  storage_account_id    = azurerm_storage_account.backups.id
   container_access_type = "private"
 }
 
@@ -51,7 +55,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   default_node_pool {
     name       = "systempool"
-    vm_size    = "Standard_D8s_v6"
+    vm_size    = "Standard_D4s_v5"
     node_count = 3
   }
 
@@ -65,17 +69,6 @@ resource "azurerm_kubernetes_cluster_extension" "container_storage" {
   name           = "acstor"
   cluster_id     = azurerm_kubernetes_cluster.aks.id
   extension_type = "microsoft.azurecontainerstoragev2"
-}
-
-resource "kubernetes_storage_class_v1" "azuresan" {
-  metadata {
-    name = "azuresan"
-  }
-
-  storage_provisioner    = "san.csi.azure.com"
-  reclaim_policy         = "Delete"
-  volume_binding_mode    = "Immediate"
-  allow_volume_expansion = true
 }
 
 output "storage_account_name" {
