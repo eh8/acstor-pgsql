@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 4.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
     kubernetes = {
       source  = "hashicorp/kubernetes"
       version = "~> 3.0"
@@ -16,10 +20,10 @@ provider "azurerm" {
   features {}
 }
 
-variable "storage_account_name" {
-  description = "Globally-unique storage account name (3-24 lowercase letters/numbers)."
+variable "storage_account_name_prefix" {
+  description = "Storage account name prefix (lowercase letters/numbers). A 6-char random suffix is appended."
   type        = string
-  default     = "acstorcnpgdemo001a3f9c7d"
+  default     = "acstorcnpgdemo001"
 }
 
 variable "storage_container_name" {
@@ -29,12 +33,24 @@ variable "storage_container_name" {
 }
 
 resource "azurerm_resource_group" "rg" {
-  name     = "demo-aks-rg-001"
+  name     = "demo-aks-rg-${random_string.storage_account_suffix.result}"
   location = "eastus"
 }
 
+resource "random_string" "storage_account_suffix" {
+  length  = 6
+  upper   = false
+  special = false
+  numeric = true
+}
+
+locals {
+  storage_account_name = "${var.storage_account_name_prefix}${random_string.storage_account_suffix.result}"
+  name_suffix          = random_string.storage_account_suffix.result
+}
+
 resource "azurerm_storage_account" "backups" {
-  name                     = var.storage_account_name
+  name                     = local.storage_account_name
   resource_group_name      = azurerm_resource_group.rg.name
   location                 = azurerm_resource_group.rg.location
   account_tier             = "Standard"
@@ -48,8 +64,8 @@ resource "azurerm_storage_container" "backups" {
 }
 
 resource "azurerm_kubernetes_cluster" "aks" {
-  name                = "demo-aks-cluster-001"
-  dns_prefix          = "demo-aks"
+  name                = "demo-aks-cluster-${local.name_suffix}"
+  dns_prefix          = "demo-aks-${local.name_suffix}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 

@@ -18,6 +18,12 @@ Set relevant subscription.
 az account set --subscription <your subscription>
 ```
 
+Register Azure Elastic SAN if this is the first time it is being used in this subscription:
+
+```bash
+az provider register --namespace Microsoft.ElasticSan
+```
+
 Then export `ARM_SUBSCRIPTION_ID` so Terraform knows where to deploy.
 
 ```bash
@@ -31,17 +37,15 @@ terraform init
 terraform apply
 ```
 
-If the storage account name is already taken, re-run with your own name:
-
-```bash
-terraform apply -var storage_account_name=acstorcnpgdemo$RANDOM
-```
+Terraform appends a 6-character lowercase+number suffix to the prefix for uniqueness.
 
 After apply, fetch kubeconfig:
 
 ```bash
-az aks get-credentials --resource-group demo-aks-rg-001 --name demo-aks-cluster
+az aks get-credentials --resource-group demo-aks-rg-<suffix> --name demo-aks-cluster-<suffix>
 ```
+
+Note: The Azure Container Storage extension is installed by Terraform. This lab uses the dynamic Elastic SAN provisioning model only.
 
 ### Get Azure Blob backup details (fast, non-prod)
 
@@ -60,6 +64,13 @@ export AZ_SA=$(terraform output -raw storage_account_name) AZ_CONTAINER=$(terraf
 ```
 
 These are **lab-only** exports (account keys in a Secret).
+
+Set passwords for the app and superuser Secrets:
+
+```bash
+export APP_PASSWORD=$(openssl rand -hex 24)
+export SUPERUSER_PASSWORD=$(openssl rand -hex 24)
+```
 
 ## Install the CNPG operator
 
@@ -97,12 +108,20 @@ Edit these values before applying:
 Fast, non-prod secret + destination updates using the exports above:
 
 ```bash
+sed -i "s/REPLACE_ME_APP_PASSWORD/$APP_PASSWORD/" 01-secrets.yaml
+sed -i "s/REPLACE_ME_SUPERUSER_PASSWORD/$SUPERUSER_PASSWORD/" 01-secrets.yaml
 sed -i "s/REPLACE_ME_STORAGE_ACCOUNT/$AZ_SA/" 01-secrets.yaml
 sed -i "s/REPLACE_ME_STORAGE_KEY/$AZ_KEY/" 01-secrets.yaml
 sed -i "s/REPLACE_ME_ACCOUNT/$AZ_SA/" 09-cluster.yaml
 sed -i "s/REPLACE_ME_CONTAINER/$AZ_CONTAINER/" 09-cluster.yaml
 sed -i "s/REPLACE_ME_ACCOUNT/$AZ_SA/" 08-restore-cluster.yaml
 sed -i "s/REPLACE_ME_CONTAINER/$AZ_CONTAINER/" 08-restore-cluster.yaml
+```
+
+One-liner equivalent (safe for values containing `/`):
+
+```bash
+sed -i "s|REPLACE_ME_APP_PASSWORD|$APP_PASSWORD|" 01-secrets.yaml && sed -i "s|REPLACE_ME_SUPERUSER_PASSWORD|$SUPERUSER_PASSWORD|" 01-secrets.yaml && sed -i "s|REPLACE_ME_STORAGE_ACCOUNT|$AZ_SA|" 01-secrets.yaml && sed -i "s|REPLACE_ME_STORAGE_KEY|$AZ_KEY|" 01-secrets.yaml && sed -i "s|REPLACE_ME_ACCOUNT|$AZ_SA|" 09-cluster.yaml 08-restore-cluster.yaml && sed -i "s|REPLACE_ME_CONTAINER|$AZ_CONTAINER|" 09-cluster.yaml 08-restore-cluster.yaml
 ```
 
 Apply:
@@ -115,7 +134,7 @@ kubectl apply -f 02-sample-data-configmap.yaml
 
 ## Ensure the Azure Elastic SAN StorageClass exists
 
-The lab uses a StorageClass named `azuresan` with provisioner `san.csi.azure.com`. If Terraform already created it, you can skip this step. Otherwise apply:
+The lab uses a StorageClass named `azuresan` with provisioner `san.csi.azure.com`. This uses dynamic provisioning so Azure Container Storage creates Elastic SAN volume groups and volumes on demand.
 
 ```bash
 kubectl apply -f 03-storageclass-azuresan.yaml
