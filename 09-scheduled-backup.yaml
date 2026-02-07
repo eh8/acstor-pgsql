@@ -8,4 +8,9 @@ spec:
   backupOwnerReference: self
   cluster:
     name: cnpg-demo
-  method: barmanObjectStore
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+    parameters:
+      barmanObjectName: cnpg-lab-backups
+      serverName: cnpg-demo

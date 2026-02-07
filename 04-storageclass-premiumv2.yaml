@@ -4,7 +4,7 @@ metadata:
   name: premiumv2-disk-sc
 provisioner: disk.csi.azure.com
 reclaimPolicy: Delete
-volumeBindingMode: Immediate
+volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 parameters:
   cachingMode: None

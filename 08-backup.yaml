@@ -1,0 +1,14 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  name: cnpg-backup
+  namespace: cnpg-lab
+spec:
+  cluster:
+    name: cnpg-demo
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+    parameters:
+      barmanObjectName: cnpg-lab-backups
+      serverName: cnpg-demo
