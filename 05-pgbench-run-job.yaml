@@ -9,10 +9,10 @@ spec:
       restartPolicy: Never
       containers:
         - name: pgbench
-          image: postgres:16
+          image: postgres:17
           env:
             - name: PGHOST
-              value: acstor-cnpg-rw.cnpg-lab.svc
+              value: cnpg-demo-rw.cnpg-lab.svc
             - name: PGUSER
               valueFrom:
                 secretKeyRef:

@@ -23,7 +23,7 @@ provider "azurerm" {
 variable "storage_account_name_prefix" {
   description = "Storage account name prefix (lowercase letters/numbers). A 6-char random suffix is appended."
   type        = string
-  default     = "acstorcnpgdemo001"
+  default     = "cnpgdemo001"
 }
 
 variable "storage_container_name" {
@@ -73,6 +73,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
     name       = "systempool"
     vm_size    = "Standard_D4s_v5"
     node_count = 3
+    zones      = ["1"]
   }
 
   identity {
@@ -80,15 +81,16 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-resource "azurerm_kubernetes_cluster_extension" "container_storage" {
-  # NOTE: the `name` parameter must be "acstor" for Azure CLI compatibility
-  name           = "acstor"
-  cluster_id     = azurerm_kubernetes_cluster.aks.id
-  extension_type = "microsoft.azurecontainerstoragev2"
-}
-
 output "storage_account_name" {
   value = azurerm_storage_account.backups.name
+}
+
+output "resource_group_name" {
+  value = azurerm_resource_group.rg.name
+}
+
+output "aks_cluster_name" {
+  value = azurerm_kubernetes_cluster.aks.name
 }
 
 output "storage_container_name" {

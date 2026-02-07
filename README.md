@@ -1,6 +1,6 @@
-# CloudNativePG on Azure Container Storage (Elastic SAN) Lab
+# CloudNativePG on AKS with Premium SSD v2 (Azure Disk CSI) Lab
 
-This lab walks through creating a 3-node HA PostgreSQL cluster on AKS using CloudNativePG (CNPG) and Azure Container Storage (Elastic SAN). It includes benchmark steps, sample data, and backup/restore using Barman.
+This lab walks through creating a 3-node HA PostgreSQL cluster on AKS using CloudNativePG (CNPG) and Azure Premium SSD v2 disks (Azure Disk CSI). It includes benchmark steps, sample data, and backup/restore using Barman.
 
 ## Prereqs
 
@@ -16,12 +16,6 @@ Set relevant subscription.
 
 ```bash
 az account set --subscription <your subscription>
-```
-
-Register Azure Elastic SAN if this is the first time it is being used in this subscription:
-
-```bash
-az provider register --namespace Microsoft.ElasticSan
 ```
 
 Then export `ARM_SUBSCRIPTION_ID` so Terraform knows where to deploy.
@@ -45,7 +39,7 @@ After apply, fetch kubeconfig:
 az aks get-credentials --resource-group demo-aks-rg-<suffix> --name demo-aks-cluster-<suffix>
 ```
 
-Note: The Azure Container Storage extension is installed by Terraform. This lab uses the dynamic Elastic SAN provisioning model only.
+Note: Premium SSD v2 requires zonal node pools in regions/zones that support it. This Terraform config pins the system node pool to zone 1. If your region doesn't support Premium SSD v2 (or zone 1), pick a supported region/zone before applying Terraform.
 
 ### Get Azure Blob backup details (fast, non-prod)
 
@@ -132,13 +126,13 @@ kubectl apply -f 01-secrets.yaml
 kubectl apply -f 02-sample-data-configmap.yaml
 ```
 
-## Ensure the Azure Elastic SAN StorageClass exists
+## Create the Premium SSD v2 StorageClass
 
-The lab uses a StorageClass named `azuresan` with provisioner `san.csi.azure.com`. This uses dynamic provisioning so Azure Container Storage creates Elastic SAN volume groups and volumes on demand.
+The lab uses a StorageClass named `premiumv2-disk-sc` with provisioner `disk.csi.azure.com`. It sets performance to 3000 IOPS and 125 MBps.
 
 ```bash
-kubectl apply -f 03-storageclass-azuresan.yaml
-kubectl get storageclass azuresan
+kubectl apply -f 03-storageclass-premiumv2.yaml
+kubectl get storageclass premiumv2-disk-sc
 ```
 
 ## Create the 3-node CNPG cluster
@@ -148,7 +142,7 @@ kubectl apply -f 09-cluster.yaml
 kubectl get pods -n cnpg-lab
 ```
 
-CNPG creates services for the cluster. The read/write service is named `<cluster>-rw` (here `acstor-cnpg-rw`). Use it for connections.
+CNPG creates services for the cluster. The read/write service is named `<cluster>-rw` (here `cnpg-demo-rw`). Use it for connections.
 
 ## Check sample data
 
@@ -157,8 +151,8 @@ The sample tables and rows are created during bootstrap via `postInitApplication
 Run a quick query:
 
 ```bash
-kubectl run psql --rm -it --image=postgres:16 \
-  --env=PGHOST=acstor-cnpg-rw.cnpg-lab.svc \
+kubectl run psql --rm -it --image=postgres:17 \
+  --env=PGHOST=cnpg-demo-rw.cnpg-lab.svc \
   --env=PGUSER=app \
   --env=PGPASSWORD=$(kubectl get secret app-user -n cnpg-lab -o jsonpath='{.data.password}' | base64 -d) \
   --env=PGDATABASE=app \
@@ -203,8 +197,8 @@ Note: CNPG scheduled backups use a 6-field cron format (includes seconds).
 Simulate a bad change:
 
 ```bash
-kubectl run psql --rm -it --image=postgres:16 \
-  --env=PGHOST=acstor-cnpg-rw.cnpg-lab.svc \
+kubectl run psql --rm -it --image=postgres:17 \
+  --env=PGHOST=cnpg-demo-rw.cnpg-lab.svc \
   --env=PGUSER=app \
   --env=PGPASSWORD=$(kubectl get secret app-user -n cnpg-lab -o jsonpath='{.data.password}' | base64 -d) \
   --env=PGDATABASE=app \
@@ -221,8 +215,8 @@ kubectl get pods -n cnpg-lab
 Verify data is present in the restored cluster:
 
 ```bash
-kubectl run psql --rm -it --image=postgres:16 \
-  --env=PGHOST=acstor-cnpg-restore-rw.cnpg-lab.svc \
+kubectl run psql --rm -it --image=postgres:17 \
+  --env=PGHOST=cnpg-restore-rw.cnpg-lab.svc \
   --env=PGUSER=app \
   --env=PGPASSWORD=$(kubectl get secret app-user -n cnpg-lab -o jsonpath='{.data.password}' | base64 -d) \
   --env=PGDATABASE=app \
@@ -247,8 +241,8 @@ kubectl delete -f 07-scheduled-backup.yaml --ignore-not-found
 Delete PVCs (if any remain):
 
 ```bash
-kubectl delete pvc -n cnpg-lab -l cnpg.io/cluster=acstor-cnpg --ignore-not-found
-kubectl delete pvc -n cnpg-lab -l cnpg.io/cluster=acstor-cnpg-restore --ignore-not-found
+kubectl delete pvc -n cnpg-lab -l cnpg.io/cluster=cnpg-demo --ignore-not-found
+kubectl delete pvc -n cnpg-lab -l cnpg.io/cluster=cnpg-restore --ignore-not-found
 ```
 
 Delete the namespace (cleans remaining resources):
@@ -260,7 +254,7 @@ kubectl delete namespace cnpg-lab --ignore-not-found
 Optionally delete the StorageClass if you created it manually:
 
 ```bash
-kubectl delete -f 03-storageclass-azuresan.yaml --ignore-not-found
+kubectl delete -f 03-storageclass-premiumv2.yaml --ignore-not-found
 ```
 
 Tear down AKS and Azure resources:

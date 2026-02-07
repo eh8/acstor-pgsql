@@ -1,17 +1,17 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: acstor-cnpg-restore
+  name: cnpg-restore
   namespace: cnpg-lab
 spec:
   instances: 3
 
   storage:
-    storageClass: azuresan
+    storageClass: premiumv2-disk-sc
     size: 10Gi
 
   walStorage:
-    storageClass: azuresan
+    storageClass: premiumv2-disk-sc
     size: 5Gi
 
   superuserSecret:
@@ -20,7 +20,7 @@ spec:
   bootstrap:
     recovery:
       backup:
-        name: acstor-cnpg-backup
+        name: cnpg-backup
 
   backup:
     barmanObjectStore:
