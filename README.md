@@ -11,7 +11,7 @@ az account set --subscription <change>
 export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 ```
 
-## 2) Provision AKS + Azure Container Storage (optional)
+## 2) Provision AKS
 
 If you need to create the lab environment from scratch, run Terraform; otherwise skip to the prebuilt cluster.
 
@@ -55,9 +55,9 @@ kubectl rollout status deployment -n cnpg-system cnpg-controller-manager
 kubectl get crd | rg cnpg
 ```
 
-## 6) StorageClass (Premium V2)
+## 6) StorageClass (Premium SSD v2)
 
-Create a Premium V2 StorageClass that we’ll use for both data and WAL volumes.
+Create a Premium SSD v2 StorageClass that we’ll use for both data and WAL volumes.
 
 ```bash
 cat <<EOF | kubectl apply -f -
@@ -78,9 +78,9 @@ EOF
 kubectl get sc
 ```
 
-## 7) Create a CNPG cluster (PV2, 10Gi data, 5Gi WAL)
+## 7) Create a CNPG cluster (Pv2, 10Gi data, 5Gi WAL)
 
-Deploy a 3-instance cluster using the PV2 StorageClass for data and WAL.
+Deploy a 3-instance cluster using the Pv2 StorageClass for data and WAL.
 
 ```bash
 cat <<EOF | kubectl apply -f -
@@ -202,4 +202,28 @@ Delete finished/completed jobs
 ```bash
 kubectl delete job --field-selector=status.successful==1 --all-namespaces
 kubectl delete job --field-selector=status.failed>0 --all-namespaces
+```
+
+Reset lab to end of Step 5 (keep operator installed)
+
+Aggressive cleanup of CNPG resources and data, but keep the operator running. Not sure how well tihs works.
+
+```bash
+kubectl delete cluster --all --all-namespaces
+kubectl delete scheduledbackup,backup,pooler,publication,subscription --all --all-namespaces
+kubectl delete pvc -l cnpg.io/cluster --all-namespaces
+kubectl delete svc -l cnpg.io/cluster --all-namespaces
+kubectl delete pdb -l cnpg.io/cluster --all-namespaces
+kubectl delete secret -l cnpg.io/cluster --all-namespaces
+kubectl delete job -l cnpg.io/cluster --all-namespaces
+kubectl delete sc premium2-disk-sc
+```
+
+Full wipe (removes operator + CRDs)
+
+Run this only after the cleanup above, or you may leave CNPG resources stuck with finalizers.
+
+```bash
+kubectl delete namespace cnpg-system
+kubectl get crd | rg cnpg | awk '{print $1}' | xargs -r kubectl delete crd
 ```
