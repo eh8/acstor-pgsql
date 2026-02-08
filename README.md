@@ -1,267 +1,205 @@
-# CloudNativePG on AKS with Premium SSD v2 (Azure Disk CSI) Lab
+# CloudNativePG on AKS
 
-This lab walks through creating a 3-node HA PostgreSQL cluster on AKS using CloudNativePG (CNPG) and Azure Premium SSD v2 disks (Azure Disk CSI). It includes benchmark steps, sample data, and backup/restore using the Barman Cloud plugin.
+Short, skimmable lab script. Commands are ready to copy/paste.
 
-## Prereqs
+## 1) Cloud Shell + Subscription
 
-- Azure subscription + Azure CLI
-- Terraform >= 1.5
-- kubectl, Helm (for operator install)
-- Barman Cloud plugin (CNPG-I)
-
-## Provision AKS + Azure Container Storage
-
-Start a new Bash-based Azure Cloud Shell.
-
-Set relevant subscription.
+Open Cloud Shell and target the right subscription so everything lands in the demo environment.
 
 ```bash
-az account set --subscription <your subscription>
-```
-
-Then export `ARM_SUBSCRIPTION_ID` so Terraform knows where to deploy.
-
-```bash
+az account set --subscription <change>
 export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 ```
 
-Use the provided Terraform template:
+## 2) Provision AKS + Azure Container Storage (optional)
+
+If you need to create the lab environment from scratch, run Terraform; otherwise skip to the prebuilt cluster.
 
 ```bash
 terraform init
 terraform apply
 ```
 
-Terraform appends a 6-character lowercase+number suffix to the prefix for uniqueness.
+## 3) Use the prebuilt cluster
 
-After apply, fetch kubeconfig:
-
-```bash
-az aks get-credentials --resource-group demo-aks-rg-<suffix> --name demo-aks-cluster-<suffix>
-```
-
-Note: Premium SSD v2 requires zonal node pools in regions/zones that support it. This Terraform config pins the system node pool to zone 1. If your region doesn't support Premium SSD v2 (or zone 1), pick a supported region/zone before applying Terraform.
-
-### Get Azure Blob backup details (fast, non-prod)
-
-Terraform creates a storage account and container for backups. Export the values you need for the CNPG secret and ObjectStore destination path:
+Pull kubeconfig for the shared cluster and confirm the nodes are ready.
 
 ```bash
-export AZ_SA=$(terraform output -raw storage_account_name)
-export AZ_CONTAINER=$(terraform output -raw storage_container_name)
-export AZ_KEY=$(terraform output -raw storage_account_key)
+az aks get-credentials --resource-group demo-aks-rg-<change> --name demo-aks-cluster-<change>
+kubectl get nodes
 ```
 
-Single-line version:
+## 4) Install k9s (optional)
+
+Optional: a fast live view of pods and namespaces while we walk through the lab.
 
 ```bash
-export AZ_SA=$(terraform output -raw storage_account_name) AZ_CONTAINER=$(terraform output -raw storage_container_name) AZ_KEY=$(terraform output -raw storage_account_key)
+curl -sS https://webinstall.dev/k9s | bash
+k9s -A
 ```
 
-These are **lab-only** exports (account keys in a Secret).
+## 5) Install CloudNativePG operator
 
-Set passwords for the app and superuser Secrets:
+Install the CNPG controller, the kubectl cnpg plugin, wait for it to be ready, and confirm the CRDs.
 
 ```bash
-export APP_PASSWORD=$(openssl rand -hex 24)
-export SUPERUSER_PASSWORD=$(openssl rand -hex 24)
+kubectl apply --server-side -f \
+  https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.28/releases/cnpg-1.28.1.yaml
+
+curl -sSfL \
+  https://github.com/cloudnative-pg/cloudnative-pg/raw/main/hack/install-cnpg-plugin.sh | \
+  sh -s -- -b "$HOME/.local/bin"
+
+kubectl rollout status deployment -n cnpg-system cnpg-controller-manager
+
+kubectl get crd | rg cnpg
 ```
 
-## Install the CNPG operator
+## 6) StorageClass (Premium V2)
 
-Option A (Helm, recommended):
+Create a Premium V2 StorageClass that we’ll use for both data and WAL volumes.
 
 ```bash
-helm repo add cnpg https://cloudnative-pg.github.io/charts
-helm upgrade --install cnpg \
-  --namespace cnpg-system \
-  --create-namespace \
-  cnpg/cloudnative-pg
+cat <<EOF | kubectl apply -f -
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: premium2-disk-sc
+parameters:
+  cachingMode: None
+  skuName: PremiumV2_LRS
+  DiskIOPSReadWrite: "3000"
+  DiskMBpsReadWrite: "125"
+provisioner: disk.csi.azure.com
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+EOF
+kubectl get sc
 ```
 
-Option B (kubectl + cnpg plugin to generate manifests):
+## 7) Create a CNPG cluster (PV2, 10Gi data, 5Gi WAL)
+
+Deploy a 3-instance cluster using the PV2 StorageClass for data and WAL.
 
 ```bash
-kubectl cnpg install generate -n cnpg-system > cnpg-operator.yaml
-kubectl apply -f cnpg-operator.yaml
+cat <<EOF | kubectl apply -f -
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: cnpg-demo
+spec:
+  instances: 3
+  storage:
+    size: 10Gi
+    storageClass: premium2-disk-sc
+  walStorage:
+    size: 5Gi
+    storageClass: premium2-disk-sc
+EOF
 ```
 
-Verify the operator is ready:
+## 8) Watch it come up
+
+Watch the pods start and use CNPG commands to verify the cluster is healthy.
 
 ```bash
-kubectl get deploy -n cnpg-system
+k9s -A
+kubectl get pods -l cnpg.io/cluster=cnpg-demo -w
 ```
-
-## Install the Barman Cloud plugin (CNPG-I)
-
-This lab uses the plugin-based backup/WAL archiving flow (recommended by CNPG).
-Install the Barman Cloud plugin and restart the operator so it discovers the
-plugin.
-
-- Use `docs/cnpg_i.md` for CNPG-I registration details.
-- Follow the Barman Cloud plugin documentation referenced in that file.
-
-## Create namespace + secrets + sample data
-
-Edit these values before applying:
-
-- `01-secrets.yaml`: `REPLACE_ME_*`
-- `03-objectstore.yaml`: `destinationPath` placeholders
-
-Fast, non-prod secret + destination updates using the exports above:
 
 ```bash
-sed -i "s/REPLACE_ME_APP_PASSWORD/$APP_PASSWORD/" 01-secrets.yaml
-sed -i "s/REPLACE_ME_SUPERUSER_PASSWORD/$SUPERUSER_PASSWORD/" 01-secrets.yaml
-sed -i "s/REPLACE_ME_STORAGE_ACCOUNT/$AZ_SA/" 01-secrets.yaml
-sed -i "s/REPLACE_ME_STORAGE_KEY/$AZ_KEY/" 01-secrets.yaml
-sed -i "s/REPLACE_ME_ACCOUNT/$AZ_SA/" 03-objectstore.yaml
-sed -i "s/REPLACE_ME_CONTAINER/$AZ_CONTAINER/" 03-objectstore.yaml
+kubectl get cluster
+kubectl cnpg status cnpg-demo
+kubectl get pdb
 ```
 
-One-liner equivalent (safe for values containing `/`):
+Follow logs from all CNPG pods:
 
 ```bash
-sed -i "s|REPLACE_ME_APP_PASSWORD|$APP_PASSWORD|" 01-secrets.yaml && sed -i "s|REPLACE_ME_SUPERUSER_PASSWORD|$SUPERUSER_PASSWORD|" 01-secrets.yaml && sed -i "s|REPLACE_ME_STORAGE_ACCOUNT|$AZ_SA|" 01-secrets.yaml && sed -i "s|REPLACE_ME_STORAGE_KEY|$AZ_KEY|" 01-secrets.yaml && sed -i "s|REPLACE_ME_ACCOUNT|$AZ_SA|" 03-objectstore.yaml && sed -i "s|REPLACE_ME_CONTAINER|$AZ_CONTAINER|" 03-objectstore.yaml
+kubectl logs -f -l cnpg.io/cluster=cnpg-demo --all-containers --tail=100
 ```
 
-Apply:
+## 9) Connect and add data
+
+Open a psql session, create a sample table, insert rows, and read them back.
 
 ```bash
-kubectl apply -f 00-namespace.yaml
-kubectl apply -f 01-secrets.yaml
-kubectl apply -f 02-sample-data-configmap.yaml
-kubectl apply -f 03-objectstore.yaml
+kubectl cnpg psql cnpg-demo
 ```
 
-## Create the Premium SSD v2 StorageClass
+```sql
+\l
+\dt
 
-The lab uses a StorageClass named `premiumv2-disk-sc` with provisioner `disk.csi.azure.com`. It sets performance to 3000 IOPS and 125 MBps.
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO users (name, email) VALUES
+    ('Alice', 'alice@example.com'),
+    ('Bob',   'bob@example.com'),
+    ('Carol', 'carol@example.com');
+```
+
+## 10) Verify data on multiple pods
+
+Show that replicas can read the same data by querying from different pods.
 
 ```bash
-kubectl apply -f 04-storageclass-premiumv2.yaml
-kubectl get storageclass premiumv2-disk-sc
+kubectl exec -it pod/cnpg-demo-1 -- psql -U postgres -d postgres -c "SELECT * FROM users;"
+kubectl exec -it pod/cnpg-demo-3 -- psql -U postgres -d postgres -c "SELECT * FROM users;"
 ```
 
-## Create the 3-node CNPG cluster
+## 11) Scale to 5 instances
+
+Scale the cluster to 5 instances and watch the new pods appear.
 
 ```bash
-kubectl apply -f 05-cluster.yaml
-kubectl get pods -n cnpg-lab
+kubectl patch cluster cnpg-demo --type merge -p '{"spec":{"instances":5}}'
+kubectl get pods -l cnpg.io/cluster=cnpg-demo -w
 ```
-
-CNPG creates services for the cluster. The read/write service is named `<cluster>-rw` (here `cnpg-demo-rw`). Use it for connections.
-
-## Check sample data
-
-The sample tables and rows are created during bootstrap via `postInitApplicationSQLRefs`.
-
-Run a quick query:
 
 ```bash
-kubectl run psql --rm -i --attach --restart=Never --image=postgres:17 -n cnpg-lab \
-  --env=PGHOST=cnpg-demo-rw.cnpg-lab.svc \
-  --env=PGUSER=app \
-  --env=PGPASSWORD=$(kubectl get secret app-user -n cnpg-lab -o jsonpath='{.data.password}' | base64 -d) \
-  --env=PGDATABASE=app \
-  -- bash -lc "psql -c \"SELECT to_regclass('public.accounts') AS accounts_table\""
+k9s -A
 ```
 
-## CNPG benchmark (pgbench)
+## 12) Confirm data after scaling
 
-Initialize the benchmark data:
+Verify the data is still present after scaling out.
 
 ```bash
-kubectl apply -f 06-pgbench-init-job.yaml
-kubectl logs -n cnpg-lab job/pgbench-init
+kubectl exec -it pod/cnpg-demo-5 -- psql -U postgres -d postgres -c "SELECT * FROM users;"
 ```
 
-Run the benchmark:
+## 13) Inspect CNPG secrets (optional)
+
+CNPG creates Kubernetes Secrets for credentials; show where they live and how to view them.
 
 ```bash
-kubectl apply -f 07-pgbench-run-job.yaml
-kubectl logs -n cnpg-lab job/pgbench-run
+kubectl get secrets
+k9s -A
 ```
 
-## Backup with Barman Cloud plugin (Azure Blob)
+In k9s, run `:secrets`, open a CNPG secret, and press `x` to decode.
 
-Trigger an on-demand backup:
+## 14) Run a quick pgbench (optional)
+
+Initialize a small dataset and run a short benchmark to validate performance.
 
 ```bash
-kubectl apply -f 08-backup.yaml
-kubectl get backups -n cnpg-lab
+kubectl cnpg pgbench --job-name pgbench-init cnpg-demo -- --initialize --scale 100
+kubectl cnpg pgbench cnpg-demo --ttl 600 -- --time 30 --progress 1 --client 4 --jobs 4
 ```
 
-Create a scheduled backup (daily at 02:00:00):
+## Appendix
+
+Delete finished/completed jobs
 
 ```bash
-kubectl apply -f 09-scheduled-backup.yaml
+kubectl delete job --field-selector=status.successful==1 --all-namespaces
+kubectl delete job --field-selector=status.failed>0 --all-namespaces
 ```
-
-Note: CNPG scheduled backups use a 6-field cron format (includes seconds).
-
-## Recover from backup (Barman Cloud plugin)
-
-Restore into a **new** cluster (CNPG does not do in-place restores). The
-recovery bootstrap uses the object store and restores the latest available
-backup/WALs.
-
-```bash
-kubectl apply -f 10-restore-cluster.yaml
-kubectl get pods -n cnpg-lab
-```
-
-Verify data is present in the restored cluster:
-
-```bash
-kubectl run psql --rm -i --attach --restart=Never --image=postgres:17 -n cnpg-lab \
-  --env=PGHOST=cnpg-restore-rw.cnpg-lab.svc \
-  --env=PGUSER=app \
-  --env=PGPASSWORD=$(kubectl get secret app-user -n cnpg-lab -o jsonpath='{.data.password}' | base64 -d) \
-  --env=PGDATABASE=app \
-  -- bash -lc "psql -c \"SELECT to_regclass('public.accounts') AS accounts_table\""
-```
-
-Important: the restore cluster uses a **different** `serverName` in the plugin
-configuration so its WAL/backup stream doesn't overwrite the original cluster.
-
-## Tear down / cleanup
-
-Delete CNPG clusters and jobs:
-
-```bash
-kubectl delete -f 10-restore-cluster.yaml --ignore-not-found
-kubectl delete -f 05-cluster.yaml --ignore-not-found
-kubectl delete -f 06-pgbench-init-job.yaml --ignore-not-found
-kubectl delete -f 07-pgbench-run-job.yaml --ignore-not-found
-kubectl delete -f 08-backup.yaml --ignore-not-found
-kubectl delete -f 09-scheduled-backup.yaml --ignore-not-found
-kubectl delete -f 03-objectstore.yaml --ignore-not-found
-```
-
-Delete PVCs (if any remain):
-
-```bash
-kubectl delete pvc -n cnpg-lab -l cnpg.io/cluster=cnpg-demo --ignore-not-found
-kubectl delete pvc -n cnpg-lab -l cnpg.io/cluster=cnpg-restore --ignore-not-found
-```
-
-Delete the namespace (cleans remaining resources):
-
-```bash
-kubectl delete namespace cnpg-lab --ignore-not-found
-```
-
-Optionally delete the StorageClass if you created it manually:
-
-```bash
-kubectl delete -f 04-storageclass-premiumv2.yaml --ignore-not-found
-```
-
-Tear down AKS and Azure resources:
-
-```bash
-terraform destroy
-```
-
-If cleanup hangs, check for stuck PVCs or Pods and delete them before re-running `terraform destroy`.
